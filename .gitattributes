@@ -1,0 +1,16 @@
+# Normalise line endings so a clone on Linux/macOS does not get CRLF in shell-ish files
+# and Windows batch files do not get LF (cmd.exe mis-parses LF-only .cmd in some cases).
+* text=auto eol=lf
+
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+*.cs        text eol=lf
+*.md        text eol=lf
+*.manifest  text eol=lf
+
+*.exe binary
+*.bin binary
+*.ico binary
+*.png binary
