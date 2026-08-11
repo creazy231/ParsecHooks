@@ -12,7 +12,7 @@ Turns off the monitors you don't stream, drops HDR while you play, and puts ever
 ![Dependencies](https://img.shields.io/badge/dependencies-none-success?style=flat-square)
 ![Size](https://img.shields.io/badge/size-~90%20KB-blue?style=flat-square)
 ![Admin](https://img.shields.io/badge/admin%20rights-not%20required-success?style=flat-square)
-![Tests](https://img.shields.io/badge/tests-77%20passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen?style=flat-square)
 
 </div>
 
@@ -527,9 +527,14 @@ reconciling at startup.
 
 ## 🧪 Testing
 
-Verified end-to-end on the target machine by a **77-check harness** that drives a synthetic
-Parsec log (via the `logPath` override) and asserts *real* display state through an independent
-probe binary — never through the app's own reporting.
+```powershell
+.\test\run-tests.ps1
+```
+
+A **68-check suite** that drives the real exe against a synthetic Parsec log (via the `logPath`
+override) and asserts *real* display state through an independent CCD/GDI probe — never through
+the app's own reporting. Everything machine-specific is detected at startup, so the
+exact-restoration checks work on any setup. See [test/README.md](test/README.md).
 
 | Area | Covered |
 |---|---|
