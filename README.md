@@ -13,6 +13,7 @@ Turns off the monitors you don't stream, drops HDR while you play, and puts ever
 ![Size](https://img.shields.io/badge/size-~90%20KB-blue?style=flat-square)
 ![Admin](https://img.shields.io/badge/admin%20rights-not%20required-success?style=flat-square)
 ![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
 </div>
 
@@ -584,6 +585,12 @@ ParsecHooks/
 
 `bin/` is generated and git-ignored — `build.cmd` recreates the exe in a couple of seconds, and
 `bin\parsec-hooks.ini` is per-machine config the app writes itself.
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) — do what you like with it, no warranty.
 
 <div align="center">
 <br>
