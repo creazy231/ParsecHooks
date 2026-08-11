@@ -1,0 +1,17 @@
+# Build output. build.cmd regenerates bin\ParsecHooks.exe from src\ in a couple of
+# seconds using the compiler that ships inside Windows, so there is nothing to keep.
+# bin\parsec-hooks.ini is also excluded: it is per-machine config the app writes itself
+# on first run, and committing it would push one machine's timings onto every clone.
+bin/
+
+# Runtime files, in case any ever land beside the exe rather than in %LOCALAPPDATA%.
+*.log
+*.log.1
+applied-state.bin
+
+# Editor / OS noise
+.vs/
+*.user
+*.suo
+Thumbs.db
+desktop.ini
