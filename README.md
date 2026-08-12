@@ -11,7 +11,6 @@ Turns off the monitors you don't stream, drops HDR while you play, and puts ever
 ![C#](https://img.shields.io/badge/C%23-5.0-239120?style=flat-square&logo=csharp&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-none-success?style=flat-square)
 ![Size](https://img.shields.io/badge/size-~90%20KB-blue?style=flat-square)
-![Admin](https://img.shields.io/badge/admin%20rights-not%20required-success?style=flat-square)
 ![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
