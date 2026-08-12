@@ -4,6 +4,10 @@
 # on first run, and committing it would push one machine's timings onto every clone.
 bin/
 
+# Same reasoning for the diagnostic tool: tools\lagwatch\build.cmd regenerates it.
+tools/lagwatch/LagWatch.exe
+tools/lagwatch/*.csv
+
 # Runtime files, in case any ever land beside the exe rather than in %LOCALAPPDATA%.
 *.log
 *.log.1
