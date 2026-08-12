@@ -230,6 +230,36 @@ namespace LagWatch
             return n + " active :: " + sb;
         }
 
+        /// <summary>Every display adapter and its monitor, INCLUDING ones not attached to the
+        /// desktop. DisplaySnapshot deliberately filters to attached displays, which makes it
+        /// blind to a virtual monitor being plugged in and pulled out again -- and that is
+        /// exactly the kind of event that invalidates a duplication without changing the
+        /// desktop. This sees it.</summary>
+        public static string DeviceSnapshot()
+        {
+            StringBuilder sb = new StringBuilder();
+            for (uint i = 0; ; i++)
+            {
+                DISPLAY_DEVICE ad = new DISPLAY_DEVICE();
+                ad.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
+                if (!EnumDisplayDevices(null, i, ref ad, 0)) break;
+
+                DISPLAY_DEVICE mon = new DISPLAY_DEVICE();
+                mon.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
+                bool hasMon = EnumDisplayDevices(ad.DeviceName, 0, ref mon, 0);
+
+                // Windows exposes ~35 adapter slots, nearly all empty. Listing them buries the
+                // one line that matters, so only report slots that actually have something.
+                if (!hasMon && (ad.StateFlags & ATTACHED_TO_DESKTOP) == 0) continue;
+
+                if (sb.Length > 0) sb.Append(" | ");
+                sb.Append(ad.DeviceName.Replace(@"\\.\", ""));
+                sb.Append((ad.StateFlags & ATTACHED_TO_DESKTOP) != 0 ? "+" : "-");
+                sb.Append(hasMon ? "[" + mon.DeviceString + "]" : "[no monitor]");
+            }
+            return sb.ToString();
+        }
+
         public static string Foreground()
         {
             IntPtr h = GetForegroundWindow();
@@ -359,7 +389,9 @@ namespace LagWatch
             List<DateTime> losses = new List<DateTime>();
             DateTime end = DateTime.Now.AddSeconds(seconds);
             string lastDisplay = User32.DisplaySnapshot();
+            string lastDevices = User32.DeviceSnapshot();
             string lastFg = User32.Foreground();
+            Emit("START", "devices: " + lastDevices);
             DateTime nextPoll = DateTime.Now;
             long frames = 0;
 
@@ -367,7 +399,7 @@ namespace LagWatch
             {
                 Dxgi.DXGI_OUTDUPL_FRAME_INFO info;
                 IntPtr res;
-                int hr = dup.Acquire(100, out info, out res);
+                int hr = dup.Acquire(50, out info, out res);
 
                 if (hr == 0)
                 {
@@ -413,7 +445,12 @@ namespace LagWatch
 
                 if (DateTime.Now >= nextPoll)
                 {
-                    nextPoll = DateTime.Now.AddMilliseconds(250);
+                    // 100 ms, not 250: a virtual monitor can come and go inside a second, and
+                    // missing it is what sent the first pass of this investigation astray.
+                    nextPoll = DateTime.Now.AddMilliseconds(100);
+
+                    string dev = User32.DeviceSnapshot();
+                    if (dev != lastDevices) { Emit("DEVICE_CHANGE", lastDevices + "   ->   " + dev); lastDevices = dev; }
 
                     string d = User32.DisplaySnapshot();
                     if (d != lastDisplay) { Emit("DISPLAY_CHANGE", lastDisplay + "   ->   " + d); lastDisplay = d; }
