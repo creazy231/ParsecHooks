@@ -18,13 +18,35 @@ namespace ParsecHooks
                 string s = a.TrimStart('-', '/').ToLowerInvariant();
                 if (s == "revert" || s == "restore") return EmergencyRevert();
                 if (s == "settings" || s == "config") return ShowSettingsStandalone();
+                // Available from the command line as well as the tray, because the moment you
+                // need a reset is usually the moment you cannot see a tray menu to click.
+                if (s == "reset-default" || s == "reset")
+                {
+                    string msg;
+                    bool ok = DefaultLayout.Reset(out msg);
+                    MessageBox.Show(msg, "parsec-hooks --reset-default", MessageBoxButtons.OK,
+                                    ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                    return ok ? 0 : 1;
+                }
+                if (s == "save-default")
+                {
+                    string msg;
+                    bool ok = DefaultLayout.Save(out msg);
+                    MessageBox.Show(ok ? "Saved this as the default layout:\n\n" + msg
+                                       : "Could not save the default layout - see the log.",
+                                    "parsec-hooks --save-default", MessageBoxButtons.OK,
+                                    ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                    return ok ? 0 : 1;
+                }
                 if (s == "help" || s == "?" )
                 {
                     MessageBox.Show(
                         "parsec-hooks\n\n" +
                         "  (no arguments)   run in the system tray\n" +
                         "  --settings       open the settings dialog on its own\n" +
-                        "  --revert         restore displays/HDR from the saved state file and exit\n\n" +
+                        "  --revert         restore displays/HDR from the saved state file and exit\n" +
+                        "  --save-default   remember the current layout as the one to return to\n" +
+                        "  --reset-default  put the displays back to that saved layout and exit\n\n" +
                         "Config: " + Paths.ConfigFile + "\nLog:    " + Paths.LogFile,
                         "parsec-hooks", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return 0;

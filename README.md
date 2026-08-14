@@ -24,9 +24,19 @@ While a Parsec client is connected:
 
 | | Action | Detail |
 |:--:|---|---|
-| 🌑 | **Disables every other display** | Keeps only the one you stream, so your remote cursor can't wander onto an off-screen desktop |
+| 🌙 | **Blanks the other panels over DDC/CI** | `standbySecondaryMonitors` — the monitor stays *attached* but its panel powers down, saving pixels and watts. Woken on disconnect |
+| 🖼️ | **Moves desktop icons onto the visible primary** | `moveIconsToPrimary` — Parsec shrinks the primary to the client's resolution, stranding icons off-screen. Original layout restored on disconnect |
 | 🎨 | **Turns HDR off** | Only where it was actually *on* — Parsec captures HDR poorly, so streams look washed out |
 | 📐 | **Leaves resolution to Parsec** | Parsec already matches the client and re-enforces it; we only make sure our own changes don't disturb it |
+| 🌑 | **Disables every other display** | `disableSecondaryMonitors` — **off by default, and best left that way.** See below |
+
+> [!WARNING]
+> **Do not use `disableSecondaryMonitors`.** Deactivating a display path leaves phantom
+> monitor registrations that Windows re-enumerates every ~9.2 s. Each one invalidates
+> Desktop Duplication, so Parsec rebuilds its whole NVENC pipeline — a ~500 ms freeze on
+> the client, twice, every ten seconds. Measured with [`tools/lagwatch`](tools/lagwatch):
+> 5–12 invalidations per 25 s that way, **0** with `standbySecondaryMonitors` instead.
+> Same dark panel, none of the stutter.
 
 When the last client disconnects, the **exact** prior state comes back: monitor positions,
 resolutions, fractional refresh rates (`179.998Hz`, not `180`), and HDR.
@@ -165,7 +175,9 @@ automatically on first launch, so the app is never registered twice.
 | **⚙️ Settings…** | the settings dialog — also opened by double-clicking the icon |
 | **📊 Show status…** | live display list, HDR per display, and the saved baseline |
 | **▶️ Apply tweaks now** | applies immediately, for testing |
-| **↩️ Revert now** | escape hatch — restore displays and HDR right now |
+| **↩️ Revert now** | undo this session's tweaks right now |
+| **🛟 Reset displays to default** | the real escape hatch — wakes every panel, restores the saved topology, resolution and HDR, and puts the icons back. Works even if nothing is applied, and after a crash. Also `ParsecHooks.exe --reset-default` |
+| **💾 Save current layout as default** | remember what is on screen now as the layout that button returns to. Also `ParsecHooks.exe --save-default` |
 | **⏸️ Pause automation** | stop reacting to connects until unchecked |
 | **🔁 Reload config from file** | re-read the ini by hand (normally unnecessary) |
 | **📂 Open parsec-hooks log** / **Open Parsec log** | jump to either log |

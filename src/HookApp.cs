@@ -74,6 +74,8 @@ namespace ParsecHooks
         }
         private int _expectedActive;         // how many displays should be lit while applied
         private List<HdrRecord> _hdrChanges = new List<HdrRecord>();
+        private List<PanelRecord> _panelsAsleep = new List<PanelRecord>();
+        private List<IconRecord> _iconsSaved;   // desktop layout from before we packed it
         private bool _applied;
         private bool _paused;
 
@@ -98,6 +100,8 @@ namespace ParsecHooks
             Log.Info("config   : " + Paths.ConfigFile);
             Log.Info("OS       : " + DescribeOs() + " 64bit=" + Environment.Is64BitOperatingSystem);
             Log.Info("config   : keep='" + _cfg.Keep + "' disableMonitors=" + _cfg.DisableSecondaryMonitors +
+                     " standbyMonitors=" + _cfg.StandbySecondaryMonitors +
+                     " moveIcons=" + _cfg.MoveIconsToPrimary +
                      " disableHdr=" + _cfg.DisableHdr + " hdrScope=" + _cfg.HdrScope + " guardMs=" + _cfg.GuardMs);
 
             // Older installs registered a Startup-folder shortcut; fold that into the Run
@@ -608,10 +612,61 @@ namespace ParsecHooks
             }
             RestoreModeIfWeBrokeIt(gdiNow, modeBeforeBatch, "apply");
 
+            // ---- 3. Panel standby ----
+            // Deliberately AFTER the topology work and deliberately not part of it: this blanks
+            // the other panels over DDC/CI without deactivating their display paths, so no
+            // phantom monitor registrations appear and the capture stream stays intact.
+            _panelsAsleep = new List<PanelRecord>();
+            if (_cfg.StandbySecondaryMonitors)
+            {
+                List<string> keepGdi = new List<string>();
+                try
+                {
+                    // Live query: GDI names can differ from the baseline after a topology change.
+                    foreach (DisplayInfo d in DisplayManager.Describe(DisplayManager.Capture()))
+                        if (DisplayManager.MatchesKeep(d, _cfg.Keep) && !string.IsNullOrEmpty(d.Gdi))
+                            keepGdi.Add(d.Gdi);
+                }
+                catch (Exception ex) { Log.Debug("panel standby: could not resolve kept displays: " + ex.Message); }
+
+                if (keepGdi.Count == 0)
+                    Log.Warn("panel standby: could not identify the kept display; leaving panels on");
+                else
+                {
+                    try { _panelsAsleep = PanelPower.StandbyAllExcept(keepGdi); }
+                    catch (Exception ex) { Log.Error("panel standby failed", ex); }
+                    if (_panelsAsleep.Count > 0)
+                    {
+                        if (summary.Length > 0) summary.Append(" | ");
+                        summary.Append("Panels asleep: " + _panelsAsleep.Count);
+                    }
+                }
+            }
+
+            // ---- 4. Desktop icons ----
+            // Last, because it depends on the primary's final size -- which is the client's
+            // resolution, not the idle one.
+            _iconsSaved = null;
+            if (_cfg.MoveIconsToPrimary)
+            {
+                try
+                {
+                    _iconsSaved = DesktopIcons.PackOntoPrimary();
+                    if (_iconsSaved != null)
+                    {
+                        DesktopIcons.Save(Paths.IconsFile, _iconsSaved);
+                        if (summary.Length > 0) summary.Append(" | ");
+                        summary.Append("Icons moved to primary");
+                    }
+                }
+                catch (Exception ex) { Log.Error("desktop icons: pack failed", ex); }
+            }
+
             _hdrChanges = changed;
             _topologyEnforced = topologyChanged;
             _expectedActive = expectedActive;
-            _applied = topologyChanged || changed.Count > 0;
+            _applied = topologyChanged || changed.Count > 0 ||
+                       _panelsAsleep.Count > 0 || _iconsSaved != null;
 
             if (_applied)
             {
@@ -629,6 +684,45 @@ namespace ParsecHooks
             {
                 Log.Info("nothing needed changing");
             }
+        }
+
+        // ---------------- default layout (the escape hatch) ----------------
+
+        /// <summary>Records whatever is on screen right now as the layout to fall back to.
+        /// Deliberately a manual action: the point is that the user confirms the screen looks
+        /// right at the moment it is captured, which nothing automatic can know.</summary>
+        private bool SaveDefaultLayout(out string describe)
+        {
+            return DefaultLayout.Save(out describe);
+        }
+
+        /// <summary>Puts the screens back to the saved default: panels awake, topology, mode and
+        /// HDR all restored. This is the "something went wrong, fix it" button, so it runs even
+        /// when nothing is applied and it never throws at the caller.</summary>
+        private bool ResetToDefaultLayout(out string message)
+        {
+            bool ok;
+            lock (_gate)
+            {
+                _selfOp++;
+                try
+                {
+                    _iconsSaved = null;   // DefaultLayout restores from the file, not from us
+                    ok = DefaultLayout.Reset(out message);
+
+                    // Whatever the outcome, the session's tweaks are no longer being held, so
+                    // stop the guard re-asserting a topology the user just overrode.
+                    _panelsAsleep = new List<PanelRecord>();
+                    _hdrChanges = new List<HdrRecord>();
+                    _topologyEnforced = false;
+                    _lastRatified = null;
+                    _applied = false;
+                    _guardTimer.Stop();
+                    CaptureBaseline();
+                }
+                finally { _selfOp--; _selfOpUntil = DateTime.UtcNow.AddMilliseconds(SelfOpGraceMs); }
+            }
+            return ok;
         }
 
         /// <summary>Re-applies the idle baseline, retrying until the OS agrees.
@@ -712,6 +806,18 @@ namespace ParsecHooks
             _guardTimer.Stop();
             bool ok = true;
 
+            // ---- 0. Wake panels FIRST. Waking a panel is a monitor-arrival event, and Windows
+            //         responds by re-applying its persisted display database. Doing it before the
+            //         HDR and topology work lets that re-apply land first, so our restore is what
+            //         wins rather than being silently overwritten a second later.
+            if (_panelsAsleep != null && _panelsAsleep.Count > 0)
+            {
+                try { PanelPower.Wake(_panelsAsleep); }
+                catch (Exception ex) { Log.Error("panel wake failed", ex); }
+                _panelsAsleep = new List<PanelRecord>();
+                Settle();
+            }
+
             // ---- 1. HDR FIRST. Besides the ordering rule, restoring HDR nudges Windows
             //         into re-applying its persisted topology -- which is the very config
             //         we are about to assert anyway, so the two pull in the same direction.
@@ -734,6 +840,16 @@ namespace ParsecHooks
             // it. No separate mode step is needed, and we must not add one: Parsec restores its
             // own resolution on disconnect too, and two parties setting it fight each other.
             if (_baseline != null && !RestoreBaselineTopology()) ok = false;
+
+            // ---- 3. Desktop icons LAST: their coordinates only make sense once the desktop is
+            //         back to its idle size, so this has to follow the topology restore.
+            if (_iconsSaved != null)
+            {
+                try { DesktopIcons.Restore(_iconsSaved); }
+                catch (Exception ex) { Log.Error("desktop icons: restore failed", ex); }
+                _iconsSaved = null;
+            }
+            DesktopIcons.ClearSaved(Paths.IconsFile);
 
             _hdrChanges = new List<HdrRecord>();
             _topologyEnforced = false;
@@ -923,6 +1039,48 @@ namespace ParsecHooks
 
             menu.Items.Add(new ToolStripSeparator());
 
+            // The recovery pair. Kept at the top level rather than behind Settings, because the
+            // moment you need them is the moment a screen is black or the resolution is wrong,
+            // and a dialog you cannot read is no use.
+            ToolStripMenuItem miReset = new ToolStripMenuItem("Reset displays to default");
+            miReset.Click += delegate
+            {
+                try
+                {
+                    string msg;
+                    if (ResetToDefaultLayout(out msg))
+                        Notify("Displays reset", msg);
+                    else
+                        MessageBox.Show(msg, "parsec-hooks", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex) { Log.Error("reset to default failed", ex); }
+                UpdateTray();
+            };
+            menu.Items.Add(miReset);
+
+            ToolStripMenuItem miSaveDefault = new ToolStripMenuItem("Save current layout as default");
+            miSaveDefault.Click += delegate
+            {
+                try
+                {
+                    string now = StateLine();
+                    if (MessageBox.Show(
+                            "Remember this as the layout to return to?\n\n" + now +
+                            "\n\nMake sure the screens look right before saving.",
+                            "parsec-hooks", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+                        return;
+
+                    string desc;
+                    if (SaveDefaultLayout(out desc)) Notify("Default layout saved", desc);
+                    else MessageBox.Show("Could not save the default layout - see the log.",
+                                         "parsec-hooks", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                catch (Exception ex) { Log.Error("save default failed", ex); }
+            };
+            menu.Items.Add(miSaveDefault);
+
+            menu.Items.Add(new ToolStripSeparator());
+
             _miPause = new ToolStripMenuItem("Pause automation");
             _miPause.CheckOnClick = true;
             _miPause.Click += delegate
@@ -1075,6 +1233,8 @@ namespace ParsecHooks
             else if (_applied) _guardTimer.Start();
             _watcher.SetConfiguredPath(_cfg.LogPath);
             Log.Info("config reloaded: keep='" + _cfg.Keep + "' disableMonitors=" + _cfg.DisableSecondaryMonitors +
+                     " standbyMonitors=" + _cfg.StandbySecondaryMonitors +
+                     " moveIcons=" + _cfg.MoveIconsToPrimary +
                      " disableHdr=" + _cfg.DisableHdr + " hdrScope=" + _cfg.HdrScope + " guardMs=" + _cfg.GuardMs);
             UpdateTray();
             Notify("parsec-hooks", "Config reloaded");

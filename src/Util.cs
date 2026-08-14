@@ -33,6 +33,13 @@ namespace ParsecHooks
         // Written when we apply tweaks, deleted when we revert. Its presence at startup
         // means a previous run died while displays were modified.
         public static string StateFile { get { return Path.Combine(DataDir, "applied-state.bin"); } }
+        // Desktop icon layout is the one thing a crash could lose permanently, so it is
+        // written out separately rather than folded into the binary state file.
+        public static string IconsFile { get { return Path.Combine(DataDir, "desktop-icons.txt"); } }
+        // A layout the user declared good, kept until they replace it. Unlike StateFile this
+        // survives a clean revert, so it is always there as the "put everything back" escape
+        // hatch when a session leaves the displays in a bad state.
+        public static string DefaultsFile { get { return Path.Combine(DataDir, "default-layout.bin"); } }
     }
 
     internal enum LogLevel { Debug = 0, Info = 1, Warn = 2, Error = 3 }
@@ -85,6 +92,13 @@ namespace ParsecHooks
     {
         public string Keep = "primary";              // primary | <targetId> | name/devicepath substring
         public bool DisableSecondaryMonitors = true;
+        // Blank the other panels over DDC/CI instead of deactivating their display paths.
+        // Deactivating leaves phantom monitor registrations that Windows re-enumerates every
+        // ~10s, and each one costs Parsec a full encoder rebuild -- see tools/lagwatch.
+        public bool StandbySecondaryMonitors = false;
+        // Parsec shrinks the primary to the client's resolution, which leaves icons outside
+        // the visible area. Pack them in for the session and put them back afterwards.
+        public bool MoveIconsToPrimary = false;
         public bool DisableHdr = true;
         public string HdrScope = "kept";             // kept | all
         public int ApplyDelayMs = 1200;
@@ -102,6 +116,8 @@ namespace ParsecHooks
             Config c = new Config();
             c.Keep = Keep;
             c.DisableSecondaryMonitors = DisableSecondaryMonitors;
+            c.StandbySecondaryMonitors = StandbySecondaryMonitors;
+            c.MoveIconsToPrimary = MoveIconsToPrimary;
             c.DisableHdr = DisableHdr;
             c.HdrScope = HdrScope;
             c.ApplyDelayMs = ApplyDelayMs;
@@ -159,6 +175,8 @@ namespace ParsecHooks
 
             c.Keep = Str(kv, "keep", c.Keep);
             c.DisableSecondaryMonitors = Bool(kv, "disableSecondaryMonitors", c.DisableSecondaryMonitors);
+            c.StandbySecondaryMonitors = Bool(kv, "standbySecondaryMonitors", c.StandbySecondaryMonitors);
+            c.MoveIconsToPrimary = Bool(kv, "moveIconsToPrimary", c.MoveIconsToPrimary);
             c.DisableHdr = Bool(kv, "disableHdr", c.DisableHdr);
             c.HdrScope = Str(kv, "hdrScope", c.HdrScope);
             c.ApplyDelayMs = Int(kv, "applyDelayMs", c.ApplyDelayMs, 0, 60000);
@@ -234,7 +252,26 @@ namespace ParsecHooks
             sb.AppendLine("keep = " + Keep);
             sb.AppendLine();
             sb.AppendLine("# Turn every other display off for the duration of the session.");
+            sb.AppendLine("#");
+            sb.AppendLine("# WARNING: this deactivates the display PATH, which leaves phantom monitor");
+            sb.AppendLine("# registrations that Windows re-enumerates every ~10s. Each one invalidates");
+            sb.AppendLine("# Desktop Duplication and costs Parsec a full encoder rebuild -- a ~500ms");
+            sb.AppendLine("# freeze on the client, twice, every ten seconds. Prefer");
+            sb.AppendLine("# standbySecondaryMonitors below. Measured in tools/lagwatch.");
             sb.AppendLine("disableSecondaryMonitors = " + B(DisableSecondaryMonitors));
+            sb.AppendLine();
+            sb.AppendLine("# Blank the other panels over DDC/CI instead. The monitors stay attached, so");
+            sb.AppendLine("# no phantom registrations appear and the stream stays smooth, but the panels");
+            sb.AppendLine("# are powered down -- saving pixels and watts. Woken again on disconnect.");
+            sb.AppendLine("# Measured: 30s / 4946 frames / 0 invalidations with a panel in standby.");
+            sb.AppendLine("# Needs a monitor that answers DDC/CI; ones that do not are left alone.");
+            sb.AppendLine("standbySecondaryMonitors = " + B(StandbySecondaryMonitors));
+            sb.AppendLine();
+            sb.AppendLine("# Parsec shrinks the host's primary display to the client's resolution, which");
+            sb.AppendLine("# leaves desktop icons stranded outside the visible area. Pack them onto the");
+            sb.AppendLine("# visible primary for the session and put them back on disconnect.");
+            sb.AppendLine("# Ignored while the desktop has auto-arrange switched on.");
+            sb.AppendLine("moveIconsToPrimary = " + B(MoveIconsToPrimary));
             sb.AppendLine();
             sb.AppendLine("# Turn HDR off for the duration of the session (only where it was ON).");
             sb.AppendLine("disableHdr = " + B(DisableHdr));
