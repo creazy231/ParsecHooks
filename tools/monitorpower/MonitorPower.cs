@@ -8,12 +8,18 @@
 // Measured: 35 s / 2101 frames / 0 invalidations with the panel off this way.
 //
 // !! READ THIS BEFORE USING !!
-// Turning a panel off with power state 4 made this host drop it from the display
-// topology entirely, and once that happens the monitor is NO LONGER ENUMERATED -- so
-// there is no handle left to send "on" to, and `MonitorPower on` cannot bring it back.
-// Recovery needed a power cycle. Until a lighter state (2 = standby) is shown to keep
-// the monitor enumerated, treat "off" as a one-way trip and do not wire it into an
-// automatic apply/revert flow.
+// Waking a panel only works while Windows still ENUMERATES the monitor, because the
+// handle comes from GetPhysicalMonitorsFromHMONITOR. Turning a panel off with state 4
+// made this host drop the monitor from the topology entirely, and in that window
+// nothing software-side brought it back (SDC_TOPOLOGY_EXTEND|SDC_FORCE_MODE_ENUMERATION
+// returned 87, an SC_MONITORPOWER broadcast did nothing) -- it took a power cycle.
+// After that reboot the monitor was enumerated again while still reporting state 4, and
+// an ordinary "on" woke it. So this is recoverable, but keep the monitor's power button
+// within reach and do not test it over a remote session.
+//
+// Also note waking a panel is a monitor-arrival event, so Windows re-applies its
+// persisted display database and reverts any dynamically-set mode. Set modes with
+// CDS_UPDATEREGISTRY if they need to survive.
 //
 // VCP code 0xD6 (Power Mode): 1 = on, 2 = standby, 3 = suspend, 4 = off (low power),
 // 5 = off (hard).
